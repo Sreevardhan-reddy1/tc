@@ -15,7 +15,7 @@ import subprocess, sys, os
 
 _PACKAGES = [
     "flask>=3.1.0", "pandas>=2.2.3", "openpyxl>=3.1.3",
-    "pdfplumber>=0.11.4", "Pillow>=11.0.0", "pytesseract>=0.3.13",
+    "pdfplumber>=0.11.4", "Pillow>=11.0.0", "tesserocr>=2.6.0",
     "werkzeug>=3.1.0", "xlrd>=2.0.1", "numpy>=2.1.0",
     "anthropic>=0.30.0",
 ]
@@ -65,14 +65,7 @@ except ImportError:
 
 try:
     from PIL import Image
-    import pytesseract
-    for _tpath in [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-    ]:
-        if os.path.exists(_tpath):
-            pytesseract.pytesseract.tesseract_cmd = _tpath
-            break
+    import tesserocr
     TESSERACT_OK = True
 except ImportError:
     TESSERACT_OK = False
@@ -81,15 +74,10 @@ except ImportError:
 POWERSHELL_OK = sys.platform == "win32"
 WINSDK_OK     = False   # legacy flag, kept for compatibility
 
-try:
-    import easyocr
-    EASYOCR_OK = True
-    _easyocr_reader = None
-except ImportError:
-    EASYOCR_OK = False
-    _easyocr_reader = None
+EASYOCR_OK = False
+_easyocr_reader = None
 
-OCR_OK = POWERSHELL_OK or TESSERACT_OK or EASYOCR_OK
+OCR_OK = POWERSHELL_OK or TESSERACT_OK
 
 try:
     import anthropic
@@ -462,7 +450,7 @@ Write-Output $res.Text
         except: pass
 
 def _ocr_text(filepath):
-    """Extract text. Priority: PowerShell Windows OCR → Tesseract → easyocr."""
+    """Extract text. Priority: PowerShell Windows OCR → tesserocr."""
     if POWERSHELL_OK:
         return _powershell_ocr(filepath)
     if TESSERACT_OK:
@@ -470,11 +458,13 @@ def _ocr_text(filepath):
         w, h = img.size
         if w < 1000:
             img = img.resize((int(w * 1000 / w), int(h * 1000 / w)), Image.LANCZOS)
-        return pytesseract.image_to_string(img, config="--oem 3 --psm 6")
+        with tesserocr.PyTessBaseAPI(oem=tesserocr.OEM.LSTM_ONLY, psm=tesserocr.PSM.AUTO) as api:
+            api.SetImage(img)
+            return api.GetUTF8Text()
     if EASYOCR_OK:
         global _easyocr_reader
         if _easyocr_reader is None:
-            _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+            _easyocr_reader = None  # easyocr removed
         return " ".join(_easyocr_reader.readtext(filepath, detail=0))
     return ""
 
@@ -5183,8 +5173,7 @@ if __name__ == "__main__":
     threading.Thread(target=_open, daemon=True).start()
 
     ocr_method = ("PowerShell/Windows OCR" if POWERSHELL_OK
-                  else "Tesseract" if TESSERACT_OK
-                  else "easyocr" if EASYOCR_OK
+                  else "tesserocr" if TESSERACT_OK
                   else "NONE (images unsupported)")
     port = int(os.environ.get("PORT", 2020))
     print("=" * 58)
