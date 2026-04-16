@@ -5,7 +5,7 @@
   "smtp_password": "tsarggpcjvkmjvds",
   "sender_name": "ServiceNow Ticket Count",
   "recipients": [
-    "Mada.Krupa@cognizant.com"
+    "Mada.Krupa@gmail.com"
   ],
   "use_tls": true,
   "no_auth": false
