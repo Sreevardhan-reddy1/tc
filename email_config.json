@@ -1,0 +1,12 @@
+{
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 587,
+  "smtp_user": "sreevardhanr7@gmail.com",
+  "smtp_password": "tsarggpcjvkmjvds",
+  "sender_name": "ServiceNow Ticket Count",
+  "recipients": [
+    "Mada.Krupa@cognizant.com"
+  ],
+  "use_tls": true,
+  "no_auth": false
+}
