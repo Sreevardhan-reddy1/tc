@@ -52,6 +52,7 @@ from pathlib import Path
 from flask import (Flask, render_template_string, request,
                    jsonify, session, send_file, redirect, url_for)
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -89,12 +90,22 @@ except ImportError:
 # 2. APP CONFIGURATION
 # ═══════════════════════════════════════════════════════════════
 BASE_DIR        = Path(__file__).parent
-UPLOAD_FOLDER   = BASE_DIR / "uploads"
-OUTPUT_FOLDER   = BASE_DIR / "output"
-REFERENCE_FOLDER= BASE_DIR / "reference_template"
+
+# On cloud platforms (Render, Railway, Heroku) use /tmp which is
+# always writable; fall back to the project directory locally.
+_is_cloud = bool(
+    os.environ.get("RENDER") or
+    os.environ.get("RAILWAY_ENVIRONMENT") or
+    os.environ.get("DYNO")
+)
+_DATA_ROOT      = Path("/tmp") if _is_cloud else BASE_DIR
+
+UPLOAD_FOLDER   = _DATA_ROOT / "uploads"
+OUTPUT_FOLDER   = _DATA_ROOT / "output"
+REFERENCE_FOLDER= _DATA_ROOT / "reference_template"
 
 for _d in [UPLOAD_FOLDER, OUTPUT_FOLDER, REFERENCE_FOLDER]:
-    _d.mkdir(exist_ok=True)
+    _d.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXT = {"xlsx","xls","csv","pdf","png","jpg","jpeg","bmp","tiff","gif"}
 MONTH_ABBR  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
@@ -134,8 +145,29 @@ DEFAULT_EMAIL_CONFIG = {
 }
 
 app = Flask(__name__)
-app.secret_key = "sn-ticket-counter-key-2024"
+# Fix for reverse-proxy deployments (Render, Railway, Heroku):
+# reads X-Forwarded-For / X-Forwarded-Proto headers so Flask
+# generates correct HTTPS URLs and session cookies work properly.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+app.secret_key = os.environ.get("SECRET_KEY", "sn-ticket-counter-key-2024")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024   # 100 MB
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"]   = _is_cloud       # HTTPS-only on cloud
+
+
+# ── Always return JSON for common HTTP errors ─────────────────
+@app.errorhandler(403)
+def err_forbidden(_):
+    return jsonify({"success": False, "error": "Forbidden (403) — server blocked the request"}), 403
+
+@app.errorhandler(413)
+def err_too_large(_):
+    return jsonify({"success": False, "error": "File too large (max 100 MB)"}), 413
+
+@app.errorhandler(500)
+def err_server(e):
+    return jsonify({"success": False, "error": f"Internal server error: {e}"}), 500
 
 # ═══════════════════════════════════════════════════════════════
 # 3. COLUMN AUTO-DETECTION  (ServiceNow export column aliases)
