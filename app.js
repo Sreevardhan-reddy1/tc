@@ -90,8 +90,13 @@ async function uploadFile(t){
   }
   try{
     const resp=await fetch("/upload/"+t,{method:"POST",body:fd});
-    const data=await resp.json();
     prog.classList.add("d-none"); res.classList.remove("d-none");
+    if(!resp.ok && resp.headers.get("content-type")?.includes("text/html")){
+      res.innerHTML=renderErr(`Server error (HTTP ${resp.status}) — check server logs`);
+      btn.disabled=false; btn.innerHTML='<i class="bi bi-upload me-2"></i>Retry';
+      return;
+    }
+    const data=await resp.json();
     if(data.success){
       res.innerHTML=renderOK(t,data);
       updateIndicator(t,data.total);

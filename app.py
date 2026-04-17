@@ -3224,32 +3224,37 @@ def upload(ticket_type):
     if ext not in ALLOWED_EXT:
         return jsonify({"success": False, "error": f"Unsupported file type: .{ext}"}), 400
 
-    _ensure_session()
-    sd = UPLOAD_FOLDER / session["session_id"]; sd.mkdir(exist_ok=True)
-    path = str(sd / f"{tt}_{secure_filename(f.filename)}")
-    f.save(path)
+    try:
+        _ensure_session()
+        sd = UPLOAD_FOLDER / session["session_id"]; sd.mkdir(exist_ok=True)
+        path = str(sd / f"{tt}_{secure_filename(f.filename)}")
+        f.save(path)
 
-    data = dispatch_file(path, tt.upper())
-    _save(tt, data)
+        data = dispatch_file(path, tt.upper())
+        _save(tt, data)
 
-    if tt == "macm":
-        ml = request.form.get("macm_label", "").strip()
-        if ml:
-            session["macm_label"] = ml
+        if tt == "macm":
+            ml = request.form.get("macm_label", "").strip()
+            if ml:
+                session["macm_label"] = ml
 
-    step_map = {"ritm": 2, "incident": 3, "macm": 4}
-    session["step"] = max(session.get("step", 1), step_map[tt])
+        step_map = {"ritm": 2, "incident": 3, "macm": 4}
+        session["step"] = max(session.get("step", 1), step_map[tt])
 
-    return jsonify({
-        "success":    True,
-        "ticket_type": tt.upper(),
-        "total":       data.get("total", 0),
-        "by_team":     data.get("by_team", {}),
-        "by_assignee": data.get("by_assignee", {}),
-        "by_month":    data.get("by_month", {}),
-        "errors":      data.get("errors", []),
-        "next_step":   session["step"]
-    })
+        return jsonify({
+            "success":    True,
+            "ticket_type": tt.upper(),
+            "total":       data.get("total", 0),
+            "by_team":     data.get("by_team", {}),
+            "by_assignee": data.get("by_assignee", {}),
+            "by_month":    data.get("by_month", {}),
+            "errors":      data.get("errors", []),
+            "next_step":   session["step"]
+        })
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc) or "Server error processing file"}), 500
 
 # ── Upload reference template ─────────────────────────────────
 @app.route("/upload/reference", methods=["POST"])
@@ -3259,21 +3264,26 @@ def upload_reference():
     f = request.files["file"]
     if not f.filename.lower().endswith((".xlsx", ".xls")):
         return jsonify({"success": False, "error": "Must be .xlsx or .xls"}), 400
-    _ensure_session()
-    # Save per-session so each user keeps their own template
-    sd = UPLOAD_FOLDER / session["session_id"]
-    sd.mkdir(exist_ok=True)
-    tmpl_path = sd / "reference_template.xlsx"
-    f.save(str(tmpl_path))
-    # Parse months from the uploaded template and cache in session
-    tmpl_months = _get_template_months(str(tmpl_path))
-    session["template_months"] = tmpl_months
-    session["step"] = max(session.get("step", 1), 6)
-    return jsonify({
-        "success": True,
-        "message": "Reference template uploaded. Proceeding to results.",
-        "template_months": tmpl_months
-    })
+    try:
+        _ensure_session()
+        # Save per-session so each user keeps their own template
+        sd = UPLOAD_FOLDER / session["session_id"]
+        sd.mkdir(exist_ok=True)
+        tmpl_path = sd / "reference_template.xlsx"
+        f.save(str(tmpl_path))
+        # Parse months from the uploaded template and cache in session
+        tmpl_months = _get_template_months(str(tmpl_path))
+        session["template_months"] = tmpl_months
+        session["step"] = max(session.get("step", 1), 6)
+        return jsonify({
+            "success": True,
+            "message": "Reference template uploaded. Proceeding to results.",
+            "template_months": tmpl_months
+        })
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc) or "Server error processing reference file"}), 500
 
 # ── Download blank reference template ────────────────────────
 @app.route("/download/reference-template")
@@ -3290,46 +3300,50 @@ def upload_team_efforts():
     files = [f for f in files if f and f.filename]
     if not files:
         return jsonify({"success": False, "error": "No file selected"}), 400
-    _ensure_session()
-    sd = UPLOAD_FOLDER / session["session_id"]; sd.mkdir(exist_ok=True)
-    merged = {"total": 0, "jira_count": 0, "ritm_count": 0,
-              "incident_count": 0, "macm_count": 0,
-              "by_month": {}, "records": [], "errors": []}
-    for f in files:
-        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
-        if ext not in {"xlsx", "xls", "csv"}:
-            merged["errors"].append(f"Skipped {f.filename}: unsupported format .{ext}")
-            continue
-        path = str(sd / f"team_efforts_{secure_filename(f.filename)}")
-        f.save(path)
-        data = process_team_efforts(path)
-        # Delete the raw uploaded file now that parsing is done.
-        # All data is already in 'data' (in memory). This releases the
-        # Windows file lock and keeps the uploads folder clean.
-        try:
-            os.remove(path)
-        except Exception:
-            pass
-        merged["total"]          += data.get("total", 0)
-        merged["jira_count"]     += data.get("jira_count", 0)
-        merged["ritm_count"]     += data.get("ritm_count", 0)
-        merged["incident_count"] += data.get("incident_count", 0)
-        merged["macm_count"]     += data.get("macm_count", 0)
-        merged["records"].extend(data.get("records", []))
-        merged["errors"].extend(data.get("errors", []))
-        for k, v in data.get("by_month", {}).items():
-            merged["by_month"][k] = merged["by_month"].get(k, 0) + v
-    _save("team_efforts", merged)
-    session["step"] = max(session.get("step", 1), 5)
-    return jsonify({
-        "success":        True,
-        "total":          merged["total"],
-        "jira_count":     merged["jira_count"],
-        "ritm_count":     merged["ritm_count"],
-        "incident_count": merged["incident_count"],
-        "macm_count":     merged["macm_count"],
-        "errors":         merged["errors"]
-    })
+    try:
+        _ensure_session()
+        sd = UPLOAD_FOLDER / session["session_id"]; sd.mkdir(exist_ok=True)
+        merged = {"total": 0, "jira_count": 0, "ritm_count": 0,
+                  "incident_count": 0, "macm_count": 0,
+                  "by_month": {}, "records": [], "errors": []}
+        for f in files:
+            fname = f.filename or ""
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if ext not in {"xlsx", "xls", "csv"}:
+                merged["errors"].append(f"Skipped {fname}: unsupported format .{ext}")
+                continue
+            path = str(sd / f"team_efforts_{secure_filename(fname)}")
+            f.save(path)
+            data = process_team_efforts(path)
+            # Delete the raw uploaded file now that parsing is done.
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            merged["total"]          += data.get("total", 0)
+            merged["jira_count"]     += data.get("jira_count", 0)
+            merged["ritm_count"]     += data.get("ritm_count", 0)
+            merged["incident_count"] += data.get("incident_count", 0)
+            merged["macm_count"]     += data.get("macm_count", 0)
+            merged["records"].extend(data.get("records", []))
+            merged["errors"].extend(data.get("errors", []))
+            for k, v in data.get("by_month", {}).items():
+                merged["by_month"][k] = merged["by_month"].get(k, 0) + v
+        _save("team_efforts", merged)
+        session["step"] = max(session.get("step", 1), 5)
+        return jsonify({
+            "success":        True,
+            "total":          merged["total"],
+            "jira_count":     merged["jira_count"],
+            "ritm_count":     merged["ritm_count"],
+            "incident_count": merged["incident_count"],
+            "macm_count":     merged["macm_count"],
+            "errors":         merged["errors"]
+        })
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc) or "Server error processing team efforts"}), 500
 
 # ── Download report ───────────────────────────────────────────
 @app.route("/download/report")
