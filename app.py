@@ -165,6 +165,10 @@ app.config["SESSION_COOKIE_SECURE"]   = _is_cloud       # HTTPS-only on cloud
 def err_not_found(_):
     return jsonify({"success": False, "error": "Not found (404)"}), 404
 
+@app.errorhandler(405)
+def err_method(_):
+    return jsonify({"success": False, "error": "Method not allowed (405)"}), 405
+
 @app.errorhandler(403)
 def err_forbidden(_):
     return jsonify({"success": False, "error": "Forbidden (403) — server blocked the request"}), 403
