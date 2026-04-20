@@ -15,7 +15,7 @@ import subprocess, sys, os
 
 _PACKAGES = [
     "flask>=3.1.0", "pandas>=2.2.3", "openpyxl>=3.1.3",
-    "pdfplumber>=0.11.4", "Pillow>=11.0.0", "tesserocr>=2.6.0",
+    "pdfplumber>=0.11.4", "Pillow>=11.0.0",
     "werkzeug>=3.1.0", "xlrd>=2.0.1", "numpy>=2.1.0",
     "anthropic>=0.30.0",
 ]
@@ -78,13 +78,13 @@ WINSDK_OK     = False   # legacy flag, kept for compatibility
 EASYOCR_OK = False
 _easyocr_reader = None
 
-OCR_OK = POWERSHELL_OK or TESSERACT_OK or EASYOCR_OK or ANTHROPIC_OK
-
 try:
     import anthropic
     ANTHROPIC_OK = True
 except ImportError:
     ANTHROPIC_OK = False
+
+OCR_OK = POWERSHELL_OK or TESSERACT_OK or EASYOCR_OK or ANTHROPIC_OK
 
 # ═══════════════════════════════════════════════════════════════
 # 2. APP CONFIGURATION
@@ -157,6 +157,10 @@ app.config["SESSION_COOKIE_SECURE"]   = _is_cloud       # HTTPS-only on cloud
 
 
 # ── Always return JSON for common HTTP errors ─────────────────
+@app.errorhandler(404)
+def err_not_found(_):
+    return jsonify({"success": False, "error": "Not found (404)"}), 404
+
 @app.errorhandler(403)
 def err_forbidden(_):
     return jsonify({"success": False, "error": "Forbidden (403) — server blocked the request"}), 403
