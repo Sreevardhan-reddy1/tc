@@ -35,7 +35,11 @@ def _install_packages():
             )
     print("Dependencies ready.\n")
 
-_install_packages()
+# On cloud platforms packages are already installed via requirements.txt;
+# running pip at startup over the network makes gunicorn miss health checks → 403.
+_on_cloud = bool(os.environ.get("RENDER") or os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("DYNO"))
+if not _on_cloud:
+    _install_packages()
 
 # ═══════════════════════════════════════════════════════════════
 # 1. IMPORTS
@@ -148,7 +152,7 @@ app = Flask(__name__)
 # Fix for reverse-proxy deployments (Render, Railway, Heroku):
 # reads X-Forwarded-For / X-Forwarded-Proto headers so Flask
 # generates correct HTTPS URLs and session cookies work properly.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 app.secret_key = os.environ.get("SECRET_KEY", "sn-ticket-counter-key-2024")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024   # 100 MB
